@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SNAP: What Makes Synthetic Hard Negatives Work in Vision-Language Pretraining?</title>
+<meta name="description" content="SNAP generates intra-modal synthetic hard negatives that never involve the positive from either modality, avoiding the modality-gap and positive-leakage failure modes that break naive transfer from unimodal self-supervised learning to CLIP-style pretraining.">
+
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+    svg: { fontCache: 'global' }
+  };
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg:#ffffff;
+  --surface:#ffffff;
+  --ink:#17151c;
+  --ink-soft:#4a4555;
+  --ink-faint:#8d87a0;
+  --rule:#e8e3f0;
+  --accent:#6f2da8;
+  --accent-deep:#4a1d73;
+  --accent-soft:#a873d9;
+  --accent-wash:#f5eefc;
+  --radius:10px;
+  --maxw:860px;
+  --shadow:0 1px 2px rgba(23,21,28,0.04), 0 10px 26px -16px rgba(23,21,28,0.14);
+}
+
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:'STIX Two Text', 'Source Serif 4', Georgia, serif;
+  line-height:1.68;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{ background:var(--accent-wash); color:var(--ink); }
+
+.wrap{ max-width:var(--maxw); margin:0 auto; padding:0 24px; }
+
+h1,h2,h3{ font-family:'STIX Two Text', Georgia, serif; font-weight:600; color:var(--ink); letter-spacing:-0.005em; }
+p{ color:var(--ink-soft); text-align:justify; hyphens:auto; }
+a{ color:var(--accent); text-decoration:none; }
+a:hover{ text-decoration:underline; }
+.sans{ font-family:'Inter',system-ui,sans-serif; }
+code, .mono{ font-family:'JetBrains Mono', monospace; }
+mjx-container{ color:inherit !important; }
+
+/* ---------- Header / Hero ---------- */
+header.hero{ padding:64px 0 36px; text-align:center; }
+.paper-logo{ width:92px; height:auto; margin:0 auto 20px; display:block; }
+h1.title{
+  font-size:clamp(21px, 2.6vw, 26px);
+  line-height:1.4;
+  margin:0 auto 22px;
+  max-width:720px;
+  font-weight:700;
+}
+.model-name{ color:var(--accent); white-space:nowrap; font-weight:700; }
+
+.authors{ font-family:'Inter',sans-serif; font-size:16px; color:var(--ink); margin-bottom:8px; }
+.authors .you{ color:var(--accent); font-weight:600; }
+.authors sup{ color:var(--accent-soft); font-weight:600; margin-left:1px; font-size:11px; }
+.affils{ font-family:'Inter',sans-serif; font-size:13.5px; color:var(--ink-faint); margin-bottom:30px; }
+.affils sup{ color:var(--accent-soft); margin-right:2px; }
+
+.links-row{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; font-family:'Inter',sans-serif;}
+.pill-link{
+  display:inline-flex; align-items:center; gap:7px;
+  padding:9px 18px; border-radius:999px;
+  border:1px solid var(--rule); background:var(--surface); color:var(--ink);
+  font-size:13.5px; font-weight:500; box-shadow:var(--shadow);
+  transition:transform .15s ease, border-color .15s ease, background .15s ease;
+}
+.pill-link:hover{ transform:translateY(-1px); border-color:var(--accent-soft); background:var(--accent-wash); text-decoration:none; color:var(--accent-deep); }
+.pill-link svg{ width:14.5px; height:14.5px; flex:none; }
+
+/* ---------- section nav ---------- */
+.section-nav{
+  position:sticky; top:0; z-index:40;
+  display:flex; gap:4px; overflow-x:auto;
+  justify-content:center;
+  padding:12px 24px;
+  background:rgba(255,255,255,0.92);
+  -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--rule);
+  scrollbar-width:none;
+}
+.section-nav::-webkit-scrollbar{ display:none; }
+.section-nav a{
+  flex:0 0 auto; font-family:'Inter',sans-serif; font-size:12.5px; font-weight:500;
+  color:var(--ink-faint); padding:6px 13px; border-radius:999px;
+  border:1px solid transparent; white-space:nowrap;
+}
+.section-nav a:hover{ color:var(--accent); text-decoration:none; }
+.section-nav a.active{ color:var(--accent); background:var(--accent-wash); border-color:var(--accent-soft); font-weight:600; }
+
+/* ---------- Sections ---------- */
+section{ padding:50px 0; border-top:1px solid var(--rule); }
+.section-label{
+  font-family:'JetBrains Mono', monospace; font-size:11.5px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--accent); margin:0 0 10px;
+}
+h2.section-title{ font-size:24px; margin:0 0 20px; }
+h3.sub-title{ font-size:16.5px; margin:28px 0 10px; color:var(--ink); }
+.lede{ font-size:16.5px; }
+
+.card{ background:var(--surface); border:1px solid var(--rule); border-radius:var(--radius); box-shadow:var(--shadow); }
+.abstract-card{ padding:26px 30px; }
+.abstract-card p{ margin:0; font-size:16px; text-align:justify; }
+
+.def-block{ margin:22px 0; padding:20px 22px; border:1px solid var(--rule); border-radius:8px; background:var(--surface); position:relative; }
+.def-block .def-label{
+  position:absolute; top:-11px; left:16px; background:var(--bg); padding:0 8px;
+  font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.08em; color:var(--accent); text-transform:uppercase;
+}
+.def-block mjx-container{ color:var(--ink) !important; max-width:100%; }
+.def-block mjx-container[display="true"]{ overflow-x:auto; overflow-y:hidden; padding:2px 2px 8px; }
+.eq-note{ font-size:13.5px; color:var(--ink-faint); margin-top:10px; text-align:left; font-family:'Inter',sans-serif; }
+
+.stat-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin:26px 0 6px; font-family:'Inter',sans-serif;}
+.stat{ padding:16px 16px; text-align:left; }
+.stat .num{ font-family:'STIX Two Text',serif; font-size:23px; color:var(--accent); font-weight:700; }
+.stat .lab{ font-size:12.5px; color:var(--ink-faint); margin-top:4px; }
+
+.fig-card{ margin-top:26px; padding:18px; }
+.fig-card.fig-small{ max-width:440px; margin-left:auto; margin-right:auto; }
+.fig-card img{ width:100%; border-radius:6px; background:#fff; display:block; }
+.fig-caption{ font-size:13.5px; color:var(--ink-faint); margin-top:14px; line-height:1.55; font-family:'Inter',sans-serif; text-align:left;}
+.fig-caption b{ color:var(--ink-soft); }
+
+.ssl-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; align-items:end; }
+.ssl-grid figure{ margin:0; text-align:center; }
+.ssl-grid img{ width:100%; border-radius:6px; }
+.ssl-grid figcaption{ font-family:'Inter',sans-serif; font-size:12.5px; color:var(--ink-soft); margin-top:8px; }
+@media (max-width:640px){ .ssl-grid{ grid-template-columns:1fr; } }
+
+.two-col{ display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+@media (max-width:640px){ .two-col{ grid-template-columns:1fr; } }
+
+.motive-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-top:24px; }
+.motive-card{ padding:20px 20px 22px; }
+.motive-card .k{ font-size:11.5px; font-family:'JetBrains Mono',monospace; color:var(--accent-soft); margin-bottom:8px; }
+.motive-card h4{ margin:0 0 8px; font-size:15.5px; font-family:'STIX Two Text',serif; }
+.motive-card p{ font-size:14px; text-align:left; margin:0; }
+@media (max-width:640px){ .motive-grid{ grid-template-columns:1fr !important; } }
+
+.data-table{ width:100%; border-collapse:collapse; font-family:'Inter',sans-serif; font-size:13px; margin:18px 0; }
+.data-table th, .data-table td{ padding:8px 10px; border-bottom:1px solid var(--rule); text-align:left; }
+.data-table th{ font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:600; }
+.data-table td.num, .data-table th.num{ text-align:right; font-family:'JetBrains Mono',monospace; }
+.data-table tr.hl td{ background:var(--accent-wash); font-weight:600; }
+.data-table .up{ color:#1a8a4e; }
+.data-table .down{ color:#b3261e; }
+
+.limits-list{ margin:18px 0 0; padding-left:0; list-style:none; }
+.limits-list li{ display:flex; gap:12px; margin-bottom:12px; font-size:14.5px; color:var(--ink-soft); text-align:left;}
+.limits-list .tag{ flex:0 0 auto; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--accent); border:1px solid var(--accent-soft); border-radius:5px; padding:2px 7px; height:fit-content; white-space:nowrap; }
+
+.bib-card{ position:relative; margin-top:20px; }
+.bib-card pre{ margin:0; padding:24px 26px; overflow-x:auto; font-family:'JetBrains Mono',monospace; font-size:12.8px; line-height:1.7; color:var(--ink-soft); }
+.bib-card .copy-btn{ position:absolute; top:14px; right:14px; font-family:'Inter',sans-serif; font-size:12.5px; font-weight:500; padding:6px 12px; border-radius:6px; border:1px solid var(--rule); background:#fff; color:var(--ink-soft); cursor:pointer; }
+.bib-card .copy-btn:hover{ color:var(--accent); border-color:var(--accent-soft); }
+.bib-card .copy-btn.copied{ color:#1a8a4e; border-color:#1a8a4e; }
+
+.lightbox{ position:fixed; inset:0; background:rgba(14,10,18,.9); display:none; align-items:center; justify-content:center; z-index:100; padding:30px; cursor:zoom-out;}
+.lightbox.open{ display:flex; }
+.lightbox img{ max-width:min(92vw,960px); max-height:88vh; border-radius:8px; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+
+@media (max-width:640px){ header.hero{ padding:52px 0 30px; } section{ padding:38px 0; } p{ text-align:left; } .two-col{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <img class="paper-logo" src="assets/logo.png" alt="SNAP logo">
+    <h1 class="title">What Makes <span class="model-name">Synthetic Hard Negatives</span> Work<br>in Vision-Language Pretraining?</h1>
+
+    <div class="authors">
+      <span class="you">Nikos Giakoumoglou</span><sup>1</sup> &nbsp;&middot;&nbsp;
+      <span class="you">Paschalis Giakoumoglou</span><sup>2</sup><br>
+      <span>Andreas Floros</span><sup>1</sup> &nbsp;&middot;&nbsp;
+      <span>Kleanthis Marios Papadopoulos</span><sup>1</sup> &nbsp;&middot;&nbsp;
+      <span>Tania Stathaki</span><sup>1</sup>
+    </div>
+    <div class="affils">
+      <sup>1</sup>Imperial College London &nbsp;&nbsp; <sup>2</sup>Centre for Research and Technology Hellas (CERTH)
+    </div>
+
+    <div class="links-row">
+      <a class="pill-link" href="https://arxiv.org/abs/2610.09700" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.8423 0a1.0037 1.0037 0 0 0-.922.6078c-.1536.3687-.0438.6275.2938 1.1113l6.9185 8.3597-1.0223 1.1058a1.0393 1.0393 0 0 0 .003 1.4229l1.2292 1.3135-5.4391 6.4444c-.2803.299-.4538.823-.2971 1.1986a1.0253 1.0253 0 0 0 .9585.635.9133.9133 0 0 0 .6891-.3405l5.783-6.126 7.4902 8.0051a.8527.8527 0 0 0 .6835.2597.9575.9575 0 0 0 .8777-.6138c.1577-.377-.017-.7502-.306-1.1407l-7.0518-8.3418 1.0632-1.13a.9626.9626 0 0 0 .0089-1.3165L4.6336.4639s-.3733-.4535-.768-.463zm0 .272h.0166c.2179.0052.4874.2715.5644.3639l.005.006.0052.0055 10.169 10.9905a.6915.6915 0 0 1-.0072.945l-1.0666 1.133-1.4982-1.7724-8.5994-10.39c-.3286-.472-.352-.6183-.2592-.841a.7307.7307 0 0 1 .6704-.4401Zm14.341 1.5701a.877.877 0 0 0-.6554.2418l-5.6962 6.1584 1.6944 1.8319 5.3089-6.5138c.3251-.4335.479-.6603.3247-1.0292a1.1205 1.1205 0 0 0-.9763-.689zm-7.6557 12.2823 1.3186 1.4135-5.7864 6.1295a.6494.6494 0 0 1-.4959.26.7516.7516 0 0 1-.706-.4669c-.1119-.2682.0359-.6864.2442-.9083l.0051-.0055.0047-.0055z"/></svg>
+        arXiv
+      </a>
+      <a class="pill-link" href="https://github.com/giakoumoglou/snap" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.73.5.5 5.74.5 12.03c0 5.03 3.26 9.29 7.79 10.8.57.1.78-.25.78-.55 0-.27-.01-1.17-.02-2.12-3.17.69-3.84-1.35-3.84-1.35-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.25 3.33.95.1-.74.4-1.25.72-1.54-2.53-.29-5.19-1.27-5.19-5.63 0-1.24.44-2.26 1.17-3.06-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.14 1.17a10.8 10.8 0 0 1 5.72 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.57.23 2.73.11 3.02.73.8 1.17 1.82 1.17 3.06 0 4.37-2.67 5.33-5.21 5.62.41.35.78 1.04.78 2.1 0 1.52-.01 2.74-.01 3.11 0 .3.2.66.79.55A10.53 10.53 0 0 0 23.5 12.03C23.5 5.74 18.27.5 12 .5z"/></svg>
+        Code
+      </a>
+      <a class="pill-link" href="#bibtex">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        BibTeX
+      </a>
+    </div>
+  </div>
+</header>
+
+<nav class="section-nav" id="sectionNav">
+  <a href="#overview">Overview</a>
+  <a href="#abstract">Abstract</a>
+  <a href="#motivation">Motivation</a>
+  <a href="#method">Method</a>
+  <a href="#results">Results</a>
+  <a href="#discussion">Discussion</a>
+  <a href="#bibtex">BibTeX</a>
+</nav>
+
+<main>
+
+<section id="overview">
+  <div class="wrap">
+    <p class="section-label">Overview</p>
+    <h2 class="section-title">TL;DR</h2>
+    <p class="lede">Synthetic hard negatives generated directly in the representation space work well for unimodal self-supervised learning, but naively transferring them to CLIP-style vision-language pretraining <b style="color:var(--ink)">fails</b>: cross-modal blends fall into the modality gap, and intra-modal blends that touch the positive leak its signal into the denominator. <span class="model-name">SNAP</span> fixes both at once by generating intra-modal negatives that never involve the positive from either modality, delivering consistent gains on top of CLIP and FLIP with under 10% training overhead.</p>
+  </div>
+</section>
+
+<section id="abstract">
+  <div class="wrap">
+    <p class="section-label">Abstract</p>
+    <div class="card abstract-card">
+      <p>
+      Synthetic hard negatives generated in the representation space have proven effective for unimodal self-supervised learning, but transferring this idea to vision-language pretraining is not straightforward. We analyze six representation-space synthesis strategies and identify two failure modes in their transfer to vision-language pretraining: cross-modal constructions that produce overly easy negatives or pull them toward the query, and intra-modal constructions that incorporate the matched positive. We also observe logit-scale saturation when training with synthetic hard negatives and a learnable temperature, and find that fixing the temperature improves downstream performance. Using this geometric analysis we propose <span class="model-name">SNAP</span>, which generates intra-modal hard negatives that never involve the positive from either modality, avoiding both failure modes entirely. <span class="model-name">SNAP</span> is model-agnostic, requires no external generative models, and adds less than 10% training time overhead. Evaluated on top of CLIP and FLIP across multiple architectures and datasets, <span class="model-name">SNAP</span> delivers consistent improvements on zero-shot retrieval, zero-shot classification, and linear probe evaluation.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="motivation">
+  <div class="wrap">
+    <p class="section-label">Motivation</p>
+    <h2 class="section-title">Representation-space negatives, two new ways to fail</h2>
+    <p class="lede">CLIP-style pretraining samples image&ndash;text pairs randomly and pushes apart mismatched pairs via a batch-level InfoNCE loss, without controlling how hard the in-batch negatives actually are. In unimodal self-supervised learning, synthesizing hard negatives directly in the representation space is a fast, lightweight fix for exactly this problem, so the natural question is whether the same trick transfers to vision-language pretraining. It does not, and understanding why reveals constraints that have no unimodal analogue.</p>
+
+    <div class="fig-card card">
+      <img src="assets/sota_comparison.png" alt="Comparison of vision-language pretraining methods using synthetic data: input-space methods rely on external generative models, SNAP operates directly in representation space">
+    </div>
+    <p class="fig-caption"><b>Representation space vs. input space.</b> Existing methods for synthesizing hard vision-language data operate in the <b>input space</b>, i.e., LLMs rewriting captions or diffusion models generating images, incurring heavy compute and risking data leakage. <span class="model-name">SNAP</span> instead synthesizes negatives directly from in-batch embeddings, symmetrically for both modalities.</p>
+
+    <div class="motive-grid">
+      <div class="card motive-card">
+        <div class="k">modality gap</div>
+        <h4>Cross-modal failure</h4>
+        <p>Image and text embeddings cluster in distinct cones of the shared space. Blending a query image embedding with a text negative lands in the void between the cones, a region real embeddings never occupy, making the synthetic negative trivially separable and uninformative.</p>
+      </div>
+      <div class="card motive-card">
+        <div class="k">positive leakage</div>
+        <h4>Intra-modal failure</h4>
+        <p>Switching to same-modality blends but mixing in the matched positive caption creates a synthetic "negative" that inherits genuine positive signal. The loss numerator pulls toward it while the denominator pushes away from it, a contradictory gradient that confuses optimization.</p>
+      </div>
+    </div>
+
+    <div class="fig-card card">
+      <div class="ssl-grid">
+        <figure><img src="assets/cross_modal_failure.png" alt="Cross-modal failure: synthetic negatives land in the modality gap"><figcaption><b>Cross-modal failure</b><br>falls in the modality gap</figcaption></figure>
+        <figure><img src="assets/positive_leakage.png" alt="Positive leakage: synthetic negative inherits signal from the true positive"><figcaption><b>Positive leakage</b><br>inherits the positive's signal</figcaption></figure>
+        <figure><img src="assets/snap_solution.png" alt="SNAP avoids both failure modes by filtering out the positive and staying intra-modal"><figcaption><b>SNAP (ours)</b><br>avoids both failure modes</figcaption></figure>
+      </div>
+    </div>
+    <p class="fig-caption"><b>Geometric intuition.</b> <b>(a)</b> Blending image and text embeddings creates samples that are trivially rejected. <b>(b)</b> Including the positive pair in synthesis creates negatives that contain the actual signal, causing gradient conflict. <b>(c)</b> Generating intra-modal negatives while filtering out the positive anchor respects the modality geometry on both counts.</p>
+
+    <h3 class="sub-title">Our approach</h3>
+    <p>Guided by this geometric analysis, we propose <span class="model-name">SNAP</span> (<b>S</b>ynthetically <b>N</b>egative <b>A</b>ugmented <b>P</b>retraining): a model-agnostic method that generates synthetic hard negatives directly in the representation space for both image and text modalities, applicable on top of any InfoNCE-based framework such as CLIP or FLIP. We characterize the two failure modes with representation-level diagnostics, identify a secondary temperature-saturation effect, and use both to derive the three design choices that define <span class="model-name">SNAP</span>.</p>
+  </div>
+</section>
+
+<section id="method">
+  <div class="wrap">
+    <p class="section-label">Method</p>
+    <h2 class="section-title">Intra-modal, positive-free, fixed temperature</h2>
+    <p class="lede">We assume an image encoder \(f_\theta\) and text encoder \(g_\phi\) producing \(\ell_2\)-normalized embeddings \(\mathbf{v}_i, \mathbf{t}_i\) in a shared \(d\)-dimensional space. For a batch \(\mathcal{B}\), the standard bidirectional CLIP objective is:</p>
+
+    <div class="def-block">
+      <span class="def-label">CLIP objective</span>
+      \[ \mathcal{L}_{\text{CLIP}} = -\frac{1}{2|\mathcal{B}|}\left( \sum_{i \in \mathcal{B}} \log \frac{\exp(\mathbf{v}_i^\top \mathbf{t}_i / \tau)}{\sum_{j \in \mathcal{B}} \exp(\mathbf{v}_i^\top \mathbf{t}_j / \tau)} + \sum_{i \in \mathcal{B}} \log \frac{\exp(\mathbf{t}_i^\top \mathbf{v}_i / \tau)}{\sum_{j \in \mathcal{B}} \exp(\mathbf{t}_i^\top \mathbf{v}_j / \tau)} \right) \]
+      <p class="eq-note">\(\tau\) is a learnable temperature. Negatives are drawn exclusively from the batch, so discriminative ability depends heavily on batch size and composition.</p>
+    </div>
+
+    <h3 class="sub-title">Augmenting the denominator</h3>
+    <p>For each image query \(\mathbf{v}_i\), we generate a set of synthetic text negatives \(\mathcal{S}_{\text{txt}}^i\) and add them to the image-to-text denominator (and symmetrically, synthetic image negatives \(\mathcal{S}_{\text{img}}^i\) to the text-to-image denominator):</p>
+    <div class="def-block">
+      <span class="def-label">Augmented i2t loss</span>
+      \[ \bar{\mathcal{L}}_{\text{i2t}} = -\frac{1}{|\mathcal{B}|} \sum_{i \in \mathcal{B}} \log \frac{\exp(\mathbf{v}_i^\top \mathbf{t}_i / \tau)}{\sum_{j \in \mathcal{B}} \exp(\mathbf{v}_i^\top \mathbf{t}_j / \tau) + \sum_{\tilde{\mathbf{t}}_k \in \mathcal{S}_{\text{txt}}^i} \exp(\mathbf{v}_i^\top \tilde{\mathbf{t}}_k / \tau)} \]
+      <p class="eq-note">Each query gets its own synthetic-negative set, generated from its own hard-negative pool; synthetic negatives are not shared across queries, and generation happens on pre-computed embeddings with no extra forward or backward pass through the encoders.</p>
+    </div>
+
+    <div class="def-block">
+      <span class="def-label">Augmented t2i loss</span>
+      \[ \bar{\mathcal{L}}_{\text{t2i}} = -\frac{1}{|\mathcal{B}|} \sum_{i \in \mathcal{B}} \log \frac{\exp(\mathbf{t}_i^\top \mathbf{v}_i / \tau)}{\sum_{j \in \mathcal{B}} \exp(\mathbf{t}_i^\top \mathbf{v}_j / \tau) + \sum_{\tilde{\mathbf{v}}_k \in \mathcal{S}_{\text{img}}^i} \exp(\mathbf{t}_i^\top \tilde{\mathbf{v}}_k / \tau)} \]
+      <p class="eq-note">The symmetric text-to-image term, with synthetic image negatives \(\tilde{\mathbf{v}}_k\) drawn for each text query \(\mathbf{t}_i\). The final loss averages both directions: \(\bar{\mathcal{L}} = \tfrac{1}{2}(\bar{\mathcal{L}}_{\text{i2t}} + \bar{\mathcal{L}}_{\text{t2i}})\).</p>
+    </div>
+
+    <div class="fig-card card">
+      <img src="assets/architecture.png" alt="Architecture comparison: standard CLIP similarity matrix using only batch negatives, versus SNAP's augmented similarity matrix with synthetic negatives concatenated in">
+    </div>
+    <p class="fig-caption"><b>Architecture, image-to-text direction.</b> Standard CLIP computes the similarity matrix \(\mathbf{V}^\top\mathbf{T}\) using only batch negatives (white cells) and the positive pair (green). <span class="model-name">SNAP</span> concatenates synthetic text negatives \(\tilde{\mathbf{T}}\) (purple cells) onto the batch, forming an augmented similarity matrix at negligible extra cost. The text-to-image direction follows the analogous procedure.</p>
+
+    <h3 class="sub-title">Six candidate generation strategies</h3>
+    <p>Hardness is defined by cosine similarity to the query: given image query \(\mathbf{v}_i\), we select the top-\(N\) batch text negatives with highest similarity to \(\mathbf{v}_i\) as a hard-negative pool, then synthesize from it:</p>
+    <div class="def-block">
+      <span class="def-label">Synthesis strategies</span>
+      \[ \tilde{\mathbf{t}}_k = \begin{cases}
+        \alpha\, \mathbf{v}_i + (1-\alpha)\, \mathbf{t}_j, & s{=}1 \ \text{interpolation (cross-modal)} \\
+        \mathbf{t}_j + \beta\,(\mathbf{t}_j - \mathbf{v}_i), & s{=}2 \ \text{extrapolation (cross-modal)} \\
+        \gamma\, \mathbf{t}_j + (1-\gamma)\, \mathbf{t}_l, & s{=}3 \ \text{mixup (intra-modal)} \\
+        \mathbf{t}_j + \mathcal{N}(0, \sigma^2 I), & s{=}4 \ \text{noise (intra-modal)} \\
+        \mathbf{t}_j + \delta\, \nabla_{\mathbf{t}_j}(\mathbf{v}_i^\top \mathbf{t}_j), & s{=}5 \ \text{gradient ascent} \\
+        \mathbf{t}_j + \eta\, \mathrm{sign}\big(\nabla_{\mathbf{t}_j}(\mathbf{v}_i^\top \mathbf{t}_j)\big), & s{=}6 \ \text{sign-based}
+      \end{cases} \]
+      <p class="eq-note">\(s{=}1,2\) involve the query embedding, producing cross-modal negatives; \(s{=}3,4\) operate only on same-modality negatives without touching any positive. This distinction turns out to be exactly what separates success from failure.</p>
+    </div>
+
+    <h3 class="sub-title">Cross-modal vs. intra-modal, all strategies vs. the survivors</h3>
+    <p>Applying all six strategies cross-modally degrades well below the CLIP baseline. Converting to intra-modal mode helps but still underperforms, because strategies \(s{=}1,2\) now leak the positive instead. Restricting to \(s{=}3,4\) in intra-modal mode nearly recovers the baseline outright, and surpasses it once the temperature is fixed (next).</p>
+
+    <table class="data-table">
+      <tr><th>Method</th><th>Strategies</th><th>Mode</th><th class="num">IN-val</th><th class="num">IN-v2</th></tr>
+      <tr><td>CLIP</td><td>n/a</td><td>n/a</td><td class="num">10.4</td><td class="num">8.4</td></tr>
+      <tr><td>+SNAP</td><td>all 6</td><td>cross</td><td class="num down">7.6</td><td class="num down">6.8</td></tr>
+      <tr><td>+SNAP</td><td>all 6</td><td>intra</td><td class="num down">8.7</td><td class="num down">7.5</td></tr>
+      <tr class="hl"><td>+SNAP</td><td>s=3,4</td><td>intra</td><td class="num">10.0</td><td class="num">8.0</td></tr>
+    </table>
+    <p class="fig-caption">All ablations on CC3M, ViT-B/16, with a <i>learnable</i> temperature, the remaining gap closes once \(\tau\) is fixed (below).</p>
+
+    <div class="fig-card card fig-small">
+      <img src="assets/pairwise_strategies.png" alt="Pairwise strategy complementarity on ImageNet validation accuracy, s=3 and s=4 achieve the highest accuracy">
+    </div>
+    <p class="fig-caption"><b>Pairwise strategy complementarity.</b> Across every pairing, \(s{=}3\) and \(s{=}4\) consistently outperform any combination that involves cross-modal blending or the positive pair.</p>
+
+    <h3 class="sub-title">Geometric diagnostics</h3>
+    <p>We quantify the failure modes directly: <i>positive leakage</i> as cosine similarity to the true positive (random baseline \(0.19\)), and <i>trivially-separable rate</i> (TSR) as the fraction of synthetics easier than the hardest 10% of real negatives.</p>
+    <table class="data-table">
+      <tr><th>Strategy</th><th class="num">TSR (%) &darr;</th><th class="num">&Delta; hardness &uarr;</th></tr>
+      <tr><td>s=1 (cross)</td><td class="num">0.3</td><td class="num">+0.281</td></tr>
+      <tr><td>s=2 (cross)</td><td class="num">87.8</td><td class="num">&minus;0.189</td></tr>
+      <tr><td>s=1 (intra)</td><td class="num">0.6</td><td class="num">+0.133</td></tr>
+      <tr><td>s=2 (intra)</td><td class="num">74.0</td><td class="num">&minus;0.096</td></tr>
+      <tr class="hl"><td>s=3 (SNAP)</td><td class="num">2.2</td><td class="num">+0.041</td></tr>
+      <tr class="hl"><td>s=4 (SNAP)</td><td class="num">13.2</td><td class="num">+0.045</td></tr>
+    </table>
+    <p class="fig-caption">Only \(s{=}3,4\) avoid both cross-modal mixing and explicit positive inclusion: leakage at or below the random baseline, low TSR, and positive relative hardness.</p>
+
+    <h3 class="sub-title">Temperature divergence</h3>
+    <p>Adding synthetic negatives changes the contrastive denominator's interaction with a <i>learnable</i> temperature. With the positive-free intra-modal strategies active, CLIP+SNAP's logit scale saturates the OpenCLIP clamp (100) within half an epoch, over-sharpening the softmax and suppressing gradient from exactly the hard negatives we added. Fixing \(\tau = 0.07\) removes this failure mode entirely.</p>
+    <div class="fig-card card fig-small"><img src="assets/temperature.png" alt="Logit scale trajectories: CLIP+SNAP with learnable temperature saturates the clamp, both fixed-temperature runs remain stable"></div>
+    <p class="fig-caption">Logit-scale trajectories (ViT-B/32, CC3M, epochs 5&ndash;10). CLIP+SNAP with learnable \(\tau\) saturates the clamp almost immediately; both fixed-\(\tau\) runs stay stable.</p>
+    <table class="data-table">
+      <tr><th>Method</th><th>\(\tau\)</th><th class="num">IN-val</th><th class="num">IN-v2</th></tr>
+      <tr><td>CLIP</td><td>learnable</td><td class="num">10.4</td><td class="num">8.4</td></tr>
+      <tr><td>CLIP</td><td>fixed</td><td class="num">10.1</td><td class="num">8.0</td></tr>
+      <tr><td>CLIP+SNAP</td><td>learnable</td><td class="num down">10.0</td><td class="num down">8.0</td></tr>
+      <tr class="hl"><td>CLIP+SNAP</td><td>fixed</td><td class="num up">11.0</td><td class="num up">9.6</td></tr>
+    </table>
+
+    <h3 class="sub-title">SNAP: three design choices</h3>
+    <ul class="limits-list">
+      <li><span class="tag">s=3,4</span> Intra-modal, positive-free strategies only, avoiding both cross-modal geometric collapse and intra-modal positive leakage.</li>
+      <li><span class="tag">&tau;=0.07</span> Fixed temperature rather than learned, preventing the logit-scale saturation that synthetic hard negatives otherwise trigger.</li>
+      <li><span class="tag">i2t + t2i</span> Bidirectional synthesis for both image and text queries, which outperforms either direction alone or repeating/reweighting existing negatives as a control.</li>
+    </ul>
+
+    <h3 class="sub-title">Computational overhead</h3>
+    <p>Since SNAP generates negatives via vector additions, scalar multiplications, and normalization on already-computed embeddings, it adds no extra forward or backward pass through the encoders.</p>
+    <div class="stat-row">
+      <div class="card stat"><div class="num">9.2%</div><div class="lab">training-time overhead on CLIP (32.5 &rarr; 35.5 min/epoch, ViT-B/16)</div></div>
+      <div class="card stat"><div class="num">8.7%</div><div class="lab">training-time overhead on FLIP (14.9 &rarr; 16.2 min/epoch, ViT-B/16)</div></div>
+      <div class="card stat"><div class="num">0</div><div class="lab">external generative models or architectural modifications required</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="results">
+  <div class="wrap">
+    <p class="section-label">Results</p>
+    <h2 class="section-title">Consistent gains across backbones, scales, and tasks</h2>
+    <p class="lede">We train CLIP and FLIP baselines and their SNAP variants under matched data and training budgets, across three backbones (ViT-B/16, ViT-B/32, RN-50), two pretraining scales (CC3M, CC12M), and three downstream families: zero-shot retrieval (Flickr30k, MSCOCO), zero-shot classification (ImageNet and 10 transfer datasets), and linear probing. For CC3M we pretrain three seeds and report the mean.</p>
+
+    <div class="stat-row">
+      <div class="card stat"><div class="num">+90%</div><div class="lab">relative zero-shot gain on FGVC Aircraft (CC3M, ViT-B/32: 1.9&rarr;3.4)</div></div>
+      <div class="card stat"><div class="num">11.0</div><div class="lab">IN-val zero-shot top-1 (CC3M, ViT-B/16), vs. 10.4 for CLIP</div></div>
+      <div class="card stat"><div class="num">&#10003;</div><div class="lab">gains hold for both CLIP &amp; FLIP, across all 3 backbones and both data scales</div></div>
+      <div class="card stat"><div class="num">&lt;10%</div><div class="lab">training-time overhead to get there (see Method)</div></div>
+    </div>
+
+    <h3 class="sub-title">Representative results</h3>
+    <table class="data-table">
+      <tr><th>Backbone</th><th>Data</th><th>Task</th><th class="num">Baseline</th><th class="num">+SNAP</th></tr>
+      <tr><td>ViT-B/32</td><td>CC3M</td><td>Zero-shot IN top-1 (CLIP)</td><td class="num">8.0</td><td class="num up">8.2</td></tr>
+      <tr><td>ViT-B/16</td><td>CC3M</td><td>Zero-shot IN top-1 (CLIP, fixed &tau;)</td><td class="num">10.4</td><td class="num up">11.0</td></tr>
+      <tr><td>ViT-B/32</td><td>CC3M</td><td>Zero-shot Aircraft (CLIP)</td><td class="num">1.9</td><td class="num up">3.4</td></tr>
+      <tr><td>ViT-B/32</td><td>CC3M</td><td>Flickr30k text R@1 (CLIP)</td><td class="num">9.8</td><td class="num up">10.4</td></tr>
+      <tr><td>ViT-B/16</td><td>CC12M</td><td>Linear probe IN top-1 (CLIP)</td><td class="num">58.7</td><td class="num up">59.9</td></tr>
+      <tr><td>RN-50</td><td>CC3M</td><td>Linear probe IN top-1 (CLIP)</td><td class="num">50.0</td><td class="num up">51.4</td></tr>
+      <tr><td>ViT-B/16</td><td>CC3M</td><td>Zero-shot IN top-1 (FLIP)</td><td class="num">10.3</td><td class="num up">11.0</td></tr>
+    </table>
+    <p class="fig-caption">A small sample of the full results across Flickr30k/MSCOCO retrieval, 11-way zero-shot classification, and linear probing, see the paper for the complete tables. Gains appear in the large majority of settings for both CLIP and FLIP, holding across all three backbones; the few exceptions are isolated cells unchanged or lower by at most a few tenths of a point.</p>
+  </div>
+</section>
+
+<section id="discussion">
+  <div class="wrap">
+    <p class="section-label">Discussion &amp; Limitations</p>
+    <h2 class="section-title">A dual-modality constraint, not a CLIP-specific one</h2>
+    <p>The failure modes we identify arise from the dual-modality structure of contrastive learning rather than from any CLIP-specific architectural choice, so we expect SNAP's design principles to be relevant to other dual-encoder frameworks that use representation-space synthetic negatives. Our evaluation is limited to CC3M and CC12M due to computational constraints; scaling to larger datasets such as LAION-400M remains future work.</p>
+  </div>
+</section>
+
+<section id="bibtex">
+  <div class="wrap">
+    <p class="section-label">Citation</p>
+    <h2 class="section-title">BibTeX</h2>
+    <div class="card bib-card">
+      <button class="copy-btn" id="copyBibBtn">Copy</button>
+      <pre id="bibtexText">@misc{giakoumoglou2026snap,
+      title={{What Makes Synthetic Hard Negatives Work in Vision-Language Pretraining?}},
+      author={Nikos Giakoumoglou and Paschalis Giakoumoglou and Andreas Floros and Kleanthis Marios Papadopoulos and Tania Stathaki},
+      year={2026},
+      eprint={2610.09700},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2610.09700},
+}</pre>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="lightbox" id="lightbox"><img id="lightboxImg" src="" alt=""></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var navLinks = Array.from(document.querySelectorAll('.section-nav a'));
+  var navMap = {};
+  navLinks.forEach(function(a){ navMap[a.getAttribute('href').slice(1)] = a; });
+  var navSections = Object.keys(navMap).map(function(id){ return document.getElementById(id); }).filter(Boolean);
+  if('IntersectionObserver' in window){
+    var navObserver = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if(entry.isIntersecting){
+          navLinks.forEach(function(a){ a.classList.remove('active'); });
+          var link = navMap[entry.target.id];
+          if(link){ link.classList.add('active'); link.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+        }
+      });
+    }, { rootMargin: '-45% 0px -50% 0px', threshold: 0 });
+    navSections.forEach(function(s){ navObserver.observe(s); });
+  }
+
+  var lb = document.getElementById('lightbox');
+  var lbImg = document.getElementById('lightboxImg');
+  function openLightbox(src, alt){ lbImg.src = src; lbImg.alt = alt || ''; lb.classList.add('open'); }
+  lb.addEventListener('click', function(){ lb.classList.remove('open'); lbImg.src=''; });
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    if(t.tagName === 'IMG' && t.closest('.fig-card')){ openLightbox(t.src, t.alt); }
+  });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape'){ lb.classList.remove('open'); lbImg.src=''; } });
+
+  var copyBtn = document.getElementById('copyBibBtn');
+  copyBtn.addEventListener('click', function(){
+    var text = document.getElementById('bibtexText').textContent;
+    function done(){ copyBtn.textContent = 'Copied'; copyBtn.classList.add('copied'); setTimeout(function(){ copyBtn.textContent = 'Copy'; copyBtn.classList.remove('copied'); }, 1600); }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done).catch(function(){ try{ fallbackCopy(text); done(); }catch(e){} });
+    } else { try{ fallbackCopy(text); done(); }catch(e){} }
+    function fallbackCopy(t){ var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); }
+  });
+
+})();
+</script>
+</body>
+</html>
