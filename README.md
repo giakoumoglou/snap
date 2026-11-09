@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logo.png" alt="SNAP logo" width="120">
+</p>
+
 # _SNAP_: What Makes Synthetic Hard Negatives Work in Vision-Language Pretraining?
 
 Official repository for **SNAP**, a model-agnostic method that generates synthetic hard negatives directly in the representation space for vision-language pretraining. Synthetic hard negatives work well for unimodal self-supervised learning, but naively transferring them to CLIP-style training fails: cross-modal blends fall into the modality gap, and intra-modal blends that touch the matched positive leak its signal into the loss. SNAP avoids both failure modes by generating intra-modal negatives that never involve the positive from either modality, adding **less than 10% training overhead** on top of CLIP and FLIP.
